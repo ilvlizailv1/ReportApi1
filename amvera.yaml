@@ -9,6 +9,5 @@ build:
 
 run:
   image: mcr.microsoft.com/dotnet/aspnet:8.0
-  buildFileName: ReportApi.dll
-  persistenceMount: /data
+  buildFileName: ReportApi/ReportApi.dll
   containerPort: "8080"

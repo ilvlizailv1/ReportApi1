@@ -1,13 +1,13 @@
+version: null
 meta:
   environment: csharp
   toolchain:
     name: dotnet
     version: "8.0"
-
 build:
   image: mcr.microsoft.com/dotnet/sdk:8.0
-
 run:
   image: mcr.microsoft.com/dotnet/aspnet:8.0
   buildFileName: ReportApi/ReportApi.dll
   containerPort: "8080"
+serviceType: compute

@@ -11,15 +11,16 @@ app.UseSwagger();
 app.UseSwaggerUI(c =>
 {
     c.SwaggerEndpoint("/swagger/v1/swagger.json", "ReportApi v1");
-    c.RoutePrefix = "swagger"; // swagger будет по /swagger
+    c.RoutePrefix = "swagger";
 });
 
-app.MapGet("/", () => "ReportApi работает");
-
-app.UseHttpsRedirection();
+app.MapGet("/", context =>
+{
+    context.Response.Redirect("/swagger");
+    return Task.CompletedTask;
+});
 
 app.UseAuthorization();
-
 app.MapControllers();
 
 app.Run();

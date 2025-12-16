@@ -22,4 +22,6 @@ app.UseAuthorization();
 
 app.MapControllers();
 
+app.MapGet("/", () => "ReportApi работает");
+
 app.Run();

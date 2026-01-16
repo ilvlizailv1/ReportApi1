@@ -1,4 +1,4 @@
-using Microsoft.Extensions.FileProviders;
+using QuestPDF.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -6,18 +6,30 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// CORS (нужно для фронта / Netlify)
+// ✅ ВАЖНО: лицензия QuestPDF (убирает окно/ошибку)
+QuestPDF.Settings.License = LicenseType.Community;
+
+// ✅ HttpClient для OtpravkaApi
+builder.Services.AddHttpClient("OtpravkaApi", client =>
+{
+    var baseUrl = builder.Configuration["OtpravkaApi:BaseUrl"];
+    if (string.IsNullOrWhiteSpace(baseUrl))
+        throw new InvalidOperationException("OtpravkaApi:BaseUrl не задан в appsettings.json");
+
+    client.BaseAddress = new Uri(baseUrl);
+});
+
+// ✅ CORS (если фронт будет отдельно)
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowAll", policy =>
-        policy.AllowAnyOrigin()
-              .AllowAnyHeader()
-              .AllowAnyMethod());
+    options.AddPolicy("AllowAll", p =>
+        p.AllowAnyOrigin()
+         .AllowAnyHeader()
+         .AllowAnyMethod());
 });
 
 var app = builder.Build();
 
-// Swagger
 app.UseSwagger();
 app.UseSwaggerUI(c =>
 {
@@ -25,28 +37,14 @@ app.UseSwaggerUI(c =>
     c.RoutePrefix = "swagger";
 });
 
-// CORS
-app.UseCors("AllowAll");
-
-// ✅ Раздача статических файлов
-app.UseStaticFiles();
-
-// ✅ Раздача твоей папки "frontend" по адресу /frontend
-var frontendPath = Path.Combine(app.Environment.ContentRootPath, "frontend");
-if (Directory.Exists(frontendPath))
+// ✅ Чтобы открывалось по корню
+app.MapGet("/", context =>
 {
-    app.UseStaticFiles(new StaticFileOptions
-    {
-        FileProvider = new PhysicalFileProvider(frontendPath),
-        RequestPath = "/frontend"
-    });
-}
+    context.Response.Redirect("/swagger");
+    return Task.CompletedTask;
+});
 
-// ✅ Главная страница — твоя платформа
-app.MapGet("/", () => Results.Redirect("/frontend/index.html"));
-
-// (если хочешь — Swagger всегда доступен тут)
-app.MapGet("/docs", () => Results.Redirect("/swagger"));
+app.UseCors("AllowAll");
 
 app.UseAuthorization();
 app.MapControllers();

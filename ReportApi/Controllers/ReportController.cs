@@ -1,21 +1,13 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using ReportApi.Models;
+using System.IO;
 
-using QuestPDF.Fluent;
-using QuestPDF.Infrastructure;
-
-using DocumentFormat.OpenXml.Packaging;
-
-
-using WordDocument = DocumentFormat.OpenXml.Wordprocessing.Document;
-using WordBody = DocumentFormat.OpenXml.Wordprocessing.Body;
-using WordParagraph = DocumentFormat.OpenXml.Wordprocessing.Paragraph;
-using WordRun = DocumentFormat.OpenXml.Wordprocessing.Run;
-using WordText = DocumentFormat.OpenXml.Wordprocessing.Text;
-using WordRunProperties = DocumentFormat.OpenXml.Wordprocessing.RunProperties;
-using WordBold = DocumentFormat.OpenXml.Wordprocessing.Bold;
+// Алиасы, чтобы НЕ было конфликта Document
+using PdfDoc = QuestPDF.Fluent.Document;
+using WordprocessingDocument = DocumentFormat.OpenXml.Packaging.WordprocessingDocument;
 using DocumentFormat.OpenXml;
-using QuestPDF.Helpers;
+using W = DocumentFormat.OpenXml.Wordprocessing;
+using QuestPDF.Fluent;
 
 namespace ReportApi.Controllers
 {
@@ -51,7 +43,12 @@ namespace ReportApi.Controllers
         [HttpPost]
         public IActionResult Generate([FromBody] ReportModel model)
         {
-            string performance = GetPerformance(model.AverageGrade);
+            string performance = model.AverageGrade switch
+            {
+                >= 4.5 => "Отлично",
+                >= 3.5 => "Хорошо",
+                _ => "Удовлетворительно"
+            };
 
             var result = new ReportResponseModel
             {
@@ -66,122 +63,96 @@ namespace ReportApi.Controllers
             return Ok(result);
         }
 
+        // GET api/report/export
+        [HttpGet("export")]
+        public IActionResult Export()
+        {
+            return Ok("Используйте POST /api/report/export/pdf или POST /api/report/export/docx для экспорта отчёта.");
+        }
+
         // POST api/report/export/pdf
         [HttpPost("export/pdf")]
         public IActionResult ExportPdf([FromBody] ReportModel model)
         {
-            QuestPDF.Settings.License = LicenseType.Community;
+            var report = BuildReport(model);
 
-            string performance = GetPerformance(model.AverageGrade);
-            var generatedAt = DateTime.UtcNow;
+            using var stream = new MemoryStream();
 
-            var bytes = Document.Create(container =>
+            
+            PdfDoc.Create(container =>
             {
                 container.Page(page =>
                 {
-                    page.Size(PageSizes.A4);
                     page.Margin(30);
-                    page.DefaultTextStyle(x => x.FontSize(12));
-
-                    page.Header()
-                        .Text("Отчёт по успеваемости")
-                        .SemiBold()
-                        .FontSize(18);
+                    page.Header().Text("Отчёт по успеваемости").FontSize(18).SemiBold();
 
                     page.Content().Column(col =>
                     {
                         col.Spacing(8);
 
-
-                        col.Item().Text($"ID студента: {model.StudentId}");
-                        col.Item().Text($"ФИО студента: {model.StudentName}");
-                        col.Item().Text($"Количество заданий: {model.TaskCount}");
-                        col.Item().Text($"Средний балл: {FormatGrade(model.AverageGrade)}");
-                        col.Item().Text($"Успеваемость: {performance}");
-
-                        col.Item().PaddingTop(10)
-                            .Text("Сформировано автоматически в ReportApi.")
-                            .Italic()
-                            .FontSize(10);
+                        col.Item().Text($"StudentId: {report.StudentId}");
+                        col.Item().Text($"StudentName: {report.StudentName}");
+                        col.Item().Text($"TaskCount: {report.TaskCount}");
+                        col.Item().Text($"AverageGrade: {report.AverageGrade}");
+                        col.Item().Text($"Performance: {report.Performance}");
+                        col.Item().Text($"Дата формирования (UTC): {report.GeneratedAt:dd.MM.yyyy HH:mm}");
                     });
-
-                    page.Footer()
-                        .AlignRight()
-                        .Text($"Дата формирования (UTC): {generatedAt:dd.MM.yyyy HH:mm}");
                 });
-            }).GeneratePdf();
+            }).GeneratePdf(stream);
 
-            return File(bytes, "application/pdf", $"report_{model.StudentId}.pdf");
+            stream.Position = 0;
+            return File(stream.ToArray(), "application/pdf", $"report_{report.StudentId}.pdf");
         }
 
         // POST api/report/export/docx
         [HttpPost("export/docx")]
         public IActionResult ExportDocx([FromBody] ReportModel model)
         {
-            string performance = GetPerformance(model.AverageGrade);
-            var generatedAt = DateTime.UtcNow;
+            var report = BuildReport(model);
 
             using var ms = new MemoryStream();
 
-            using (var doc = WordprocessingDocument.Create(ms, WordprocessingDocumentType.Document, true))
+            using (var wordDoc = WordprocessingDocument.Create(ms, DocumentFormat.OpenXml.WordprocessingDocumentType.Document, true))
             {
-                var mainPart = doc.AddMainDocumentPart();
-                mainPart.Document = new WordDocument();
-                var body = mainPart.Document.AppendChild(new WordBody());
+                var mainPart = wordDoc.AddMainDocumentPart();
+                mainPart.Document = new W.Document();
+                var body = mainPart.Document.AppendChild(new W.Body());
 
-                void AddLine(string text, bool bold = false)
-                {
-                    var run = new WordRun();
-
-                    if (bold)
-                        run.RunProperties = new WordRunProperties(new WordBold());
-
-                    run.AppendChild(new WordText(text));
-                    body.AppendChild(new WordParagraph(run));
-                }
-
-                
-                AddLine("Отчёт по успеваемости", bold: true);
-                AddLine($"ID студента: {model.StudentId}");
-                AddLine($"ФИО студента: {model.StudentName}");
-                AddLine($"Количество заданий: {model.TaskCount}");
-                AddLine($"Средний балл: {FormatGrade(model.AverageGrade)}");
-                AddLine($"Успеваемость: {performance}");
-                AddLine($"Дата формирования (UTC): {generatedAt:dd.MM.yyyy HH:mm}");
+                body.AppendChild(new W.Paragraph(new W.Run(new W.Text("Отчёт по успеваемости"))));
+                body.AppendChild(new W.Paragraph(new W.Run(new W.Text($"StudentId: {report.StudentId}"))));
+                body.AppendChild(new W.Paragraph(new W.Run(new W.Text($"StudentName: {report.StudentName}"))));
+                body.AppendChild(new W.Paragraph(new W.Run(new W.Text($"TaskCount: {report.TaskCount}"))));
+                body.AppendChild(new W.Paragraph(new W.Run(new W.Text($"AverageGrade: {report.AverageGrade}"))));
+                body.AppendChild(new W.Paragraph(new W.Run(new W.Text($"Performance: {report.Performance}"))));
+                body.AppendChild(new W.Paragraph(new W.Run(new W.Text($"Дата формирования (UTC): {report.GeneratedAt:dd.MM.yyyy HH:mm}"))));
 
                 mainPart.Document.Save();
             }
 
             var bytes = ms.ToArray();
-
-            return File(
-                bytes,
+            return File(bytes,
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                $"report_{model.StudentId}.docx"
-            );
+                $"report_{report.StudentId}.docx");
         }
 
-        // GET api/report/export (инфо)
-        [HttpGet("export")]
-        public IActionResult ExportInfo()
+        private ReportResponseModel BuildReport(ReportModel model)
         {
-            return Ok("Используйте POST /api/report/export/pdf или POST /api/report/export/docx для экспорта отчёта.");
-        }
-
-        private static string GetPerformance(double averageGrade)
-        {
-            return averageGrade switch
+            string performance = model.AverageGrade switch
             {
                 >= 4.5 => "Отлично",
                 >= 3.5 => "Хорошо",
                 _ => "Удовлетворительно"
             };
-        }
 
-        private static string FormatGrade(double grade)
-        {
-            
-            return grade.ToString("0.0");
+            return new ReportResponseModel
+            {
+                StudentId = model.StudentId,
+                StudentName = model.StudentName,
+                TaskCount = model.TaskCount,
+                AverageGrade = model.AverageGrade,
+                Performance = performance,
+                GeneratedAt = DateTime.UtcNow
+            };
         }
     }
 }

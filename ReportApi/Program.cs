@@ -1,12 +1,23 @@
+using Microsoft.Extensions.FileProviders;
+
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+// CORS (нужно для фронта / Netlify)
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowAll", policy =>
+        policy.AllowAnyOrigin()
+              .AllowAnyHeader()
+              .AllowAnyMethod());
+});
+
 var app = builder.Build();
 
-
+// Swagger
 app.UseSwagger();
 app.UseSwaggerUI(c =>
 {
@@ -14,11 +25,28 @@ app.UseSwaggerUI(c =>
     c.RoutePrefix = "swagger";
 });
 
-app.MapGet("/", context =>
+// CORS
+app.UseCors("AllowAll");
+
+// ✅ Раздача статических файлов
+app.UseStaticFiles();
+
+// ✅ Раздача твоей папки "frontend" по адресу /frontend
+var frontendPath = Path.Combine(app.Environment.ContentRootPath, "frontend");
+if (Directory.Exists(frontendPath))
 {
-    context.Response.Redirect("/swagger");
-    return Task.CompletedTask;
-});
+    app.UseStaticFiles(new StaticFileOptions
+    {
+        FileProvider = new PhysicalFileProvider(frontendPath),
+        RequestPath = "/frontend"
+    });
+}
+
+// ✅ Главная страница — твоя платформа
+app.MapGet("/", () => Results.Redirect("/frontend/index.html"));
+
+// (если хочешь — Swagger всегда доступен тут)
+app.MapGet("/docs", () => Results.Redirect("/swagger"));
 
 app.UseAuthorization();
 app.MapControllers();

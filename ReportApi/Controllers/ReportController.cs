@@ -6,7 +6,7 @@ using QuestPDF.Infrastructure;
 
 using DocumentFormat.OpenXml.Packaging;
 
-// Алиасы, чтобы не было конфликта "Document" (QuestPDF vs OpenXml)
+
 using WordDocument = DocumentFormat.OpenXml.Wordprocessing.Document;
 using WordBody = DocumentFormat.OpenXml.Wordprocessing.Body;
 using WordParagraph = DocumentFormat.OpenXml.Wordprocessing.Paragraph;
@@ -92,7 +92,7 @@ namespace ReportApi.Controllers
                     {
                         col.Spacing(8);
 
-                        // Всё на русском
+
                         col.Item().Text($"ID студента: {model.StudentId}");
                         col.Item().Text($"ФИО студента: {model.StudentName}");
                         col.Item().Text($"Количество заданий: {model.TaskCount}");
@@ -140,7 +140,7 @@ namespace ReportApi.Controllers
                     body.AppendChild(new WordParagraph(run));
                 }
 
-                // Всё на русском
+                
                 AddLine("Отчёт по успеваемости", bold: true);
                 AddLine($"ID студента: {model.StudentId}");
                 AddLine($"ФИО студента: {model.StudentName}");
@@ -180,7 +180,7 @@ namespace ReportApi.Controllers
 
         private static string FormatGrade(double grade)
         {
-            // Чтобы не было "4,2" vs "4.2" путаницы — форматируем красиво
+            
             return grade.ToString("0.0");
         }
     }

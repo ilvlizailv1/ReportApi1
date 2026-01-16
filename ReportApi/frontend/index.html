@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Report Platform</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="bg"></div>
+
+  <main class="wrap">
+    <header class="top">
+      <div class="brand">
+        <div class="logo">R</div>
+        <div>
+          <div class="title">Report Platform</div>
+          <div class="subtitle">Формирование отчёта + экспорт PDF/DOCX</div>
+        </div>
+      </div>
+
+      <div class="api">
+        <label class="label">Backend URL</label>
+        <div class="row">
+          <input id="baseUrl" class="input" placeholder="https://localhost:7101" />
+          <button id="saveBtn" class="btn btn-ghost" type="button">Сохранить</button>
+        </div>
+        <div class="hint">Пример: <code>https://localhost:7101</code> (без <code>/api</code>)</div>
+      </div>
+    </header>
+
+    <section class="card">
+      <div class="cardHead">
+        <h2>Данные студента</h2>
+        <div class="pill" id="statusPill">готово</div>
+      </div>
+
+      <form id="form" class="grid">
+        <div>
+          <label class="label">ID студента</label>
+          <input id="studentId" class="input" type="number" min="1" value="1" required />
+        </div>
+
+        <div>
+          <label class="label">ФИО студента</label>
+          <input id="studentName" class="input" type="text" value="Test Student" required />
+        </div>
+
+        <div>
+          <label class="label">Количество заданий</label>
+          <input id="taskCount" class="input" type="number" min="0" value="5" required />
+        </div>
+
+        <div>
+          <label class="label">Средний балл</label>
+          <input id="averageGrade" class="input" type="number" min="0" max="5" step="0.1" value="4.2" required />
+        </div>
+
+        <div class="actions">
+          <button class="btn" id="calcBtn" type="submit">Сформировать отчёт</button>
+          <button class="btn btn-secondary" id="pdfBtn" type="button">Скачать PDF</button>
+          <button class="btn btn-secondary" id="docxBtn" type="button">Скачать DOCX</button>
+          <button class="btn btn-ghost" id="resetBtn" type="button">Сброс</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="card">
+      <div class="cardHead">
+        <h2>Результат</h2>
+        <div class="hint">Здесь появится ответ от <code>POST /api/report</code></div>
+      </div>
+
+      <div class="result">
+        <pre id="output" class="code">Пока пусто. Нажми «Сформировать отчёт».</pre>
+      </div>
+    </section>
+  </main>
+
+  <script src="./app.js"></script>
+</body>
+</html>

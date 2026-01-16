@@ -1,30 +1,35 @@
+function byId(id) { return document.getElementById(id); }
+
 const els = {
-    form: document.getElementById("form"),
-    studentId: document.getElementById("studentId"),
-    studentName: document.getElementById("studentName"),
-    taskCount: document.getElementById("taskCount"),
-    averageGrade: document.getElementById("averageGrade"),
-    email: document.getElementById("email"),
-    output: document.getElementById("output"),
-    statusPill: document.getElementById("statusPill"),
-    pdfBtn: document.getElementById("pdfBtn"),
-    docxBtn: document.getElementById("docxBtn"),
-    sendEmailBtn: document.getElementById("sendEmailBtn"),
-    resetBtn: document.getElementById("resetBtn"),
+    studentId: byId("studentId"),
+    studentName: byId("studentName"),
+    taskCount: byId("taskCount"),
+    averageGrade: byId("averageGrade"),
+    email: byId("email"),
+
+    jsonBtn: byId("jsonBtn"),
+    pdfBtn: byId("pdfBtn"),
+    docxBtn: byId("docxBtn"),
+    sendCsvBtn: byId("sendCsvBtn"),
+    resetBtn: byId("resetBtn"),
+
+    output: byId("output"),
+    statusPill: byId("statusPill"),
 };
 
 function setStatus(type, text) {
-    els.statusPill.className = "pill";
+    if (!els.statusPill) return;
+    els.statusPill.classList.remove("ok", "work", "err");
     if (type) els.statusPill.classList.add(type);
     els.statusPill.textContent = text;
 }
 
 function payload() {
     return {
-        studentId: Number(els.studentId.value),
+        studentId: Number(els.studentId.value || 0),
         studentName: String(els.studentName.value || ""),
-        taskCount: Number(els.taskCount.value),
-        averageGrade: Number(els.averageGrade.value),
+        taskCount: Number(els.taskCount.value || 0),
+        averageGrade: Number(String(els.averageGrade.value || "0").replace(",", ".")),
     };
 }
 
@@ -39,49 +44,56 @@ async function postJson(url, body) {
         body: JSON.stringify(body),
     });
 
-    const ct = res.headers.get("content-type") || "";
-    if (!res.ok) {
-        const txt = ct.includes("application/json")
-            ? pretty(await res.json().catch(() => ({})))
-            : await res.text().catch(() => "");
-        throw new Error(`${res.status} ${res.statusText}: ${txt}`);
-    }
+    const text = await res.text().catch(() => "");
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}: ${text}`);
 
-    return res;
+    const ct = res.headers.get("content-type") || "";
+    return ct.includes("application/json") ? JSON.parse(text || "{}") : text;
 }
 
 async function downloadFile(url, body, fallbackName) {
-    const res = await postJson(url, body);
-    const blob = await res.blob();
+    const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+    });
 
+    if (!res.ok) {
+        const t = await res.text().catch(() => "");
+        throw new Error(`${res.status} ${res.statusText}: ${t}`);
+    }
+
+    const blob = await res.blob();
     const cd = res.headers.get("content-disposition") || "";
     let filename = fallbackName;
+
     const match = /filename\*?=(?:UTF-8''|")?([^;"\n]+)/i.exec(cd);
-    if (match && match[1]) filename = decodeURIComponent(match[1].replace(/"/g, "").trim());
+    if (match?.[1]) filename = decodeURIComponent(match[1].replace(/"/g, "").trim());
 
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = filename || fallbackName;
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     a.remove();
     URL.revokeObjectURL(a.href);
 }
 
-// JSON
-els.form.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    setStatus("work", "работаю...");
-    els.output.textContent = "Отправляю запрос...";
+function out(text) {
+    els.output.textContent = text;
+}
 
+// JSON
+els.jsonBtn.addEventListener("click", async () => {
+    setStatus("work", "работаю...");
+    out("Отправляю запрос...");
     try {
-        const res = await postJson(`/api/report`, payload());
-        const data = await res.json();
-        els.output.textContent = pretty(data);
+        const data = await postJson(`/api/report`, payload());
+        out(pretty(data));
         setStatus("ok", "успех");
-    } catch (err) {
+    } catch (e) {
         setStatus("err", "ошибка");
-        els.output.textContent = String(err?.message || err);
+        out(String(e?.message || e));
     }
 });
 
@@ -92,9 +104,9 @@ els.pdfBtn.addEventListener("click", async () => {
         const p = payload();
         await downloadFile(`/api/report/export/pdf`, p, `report_${p.studentId}.pdf`);
         setStatus("ok", "pdf готов");
-    } catch (err) {
+    } catch (e) {
         setStatus("err", "ошибка");
-        els.output.textContent = String(err?.message || err);
+        out(String(e?.message || e));
     }
 });
 
@@ -105,43 +117,41 @@ els.docxBtn.addEventListener("click", async () => {
         const p = payload();
         await downloadFile(`/api/report/export/docx`, p, `report_${p.studentId}.docx`);
         setStatus("ok", "docx готов");
-    } catch (err) {
+    } catch (e) {
         setStatus("err", "ошибка");
-        els.output.textContent = String(err?.message || err);
+        out(String(e?.message || e));
     }
 });
 
-// SEND PDF EMAIL
-els.sendEmailBtn.addEventListener("click", async () => {
-    const mail = (els.email.value || "").trim();
-    if (!mail) {
+// Отправка CSV на email
+els.sendCsvBtn.addEventListener("click", async () => {
+    const email = (els.email.value || "").trim();
+    if (!email) {
         setStatus("err", "нет email");
-        els.output.textContent = "Заполни поле Email для отправки PDF.";
+        out("Введи email для отправки CSV.");
         return;
     }
 
     setStatus("work", "отправляю...");
-    els.output.textContent = "Генерирую PDF и отправляю на почту...";
+    out("Формирую CSV и отправляю через OtpravkaApi...");
 
     try {
-        const res = await postJson(`/api/integration/send-pdf-email?email=${encodeURIComponent(mail)}`, payload());
-        const txt = await res.text();
-        els.output.textContent = txt || "Письмо отправлено.";
-        setStatus("ok", "готово");
-    } catch (err) {
+        const data = await postJson(`/api/integration/send-csv-to-email?email=${encodeURIComponent(email)}`, payload());
+        out(pretty(data));
+        setStatus("ok", "отправлено");
+    } catch (e) {
         setStatus("err", "ошибка");
-        els.output.textContent = String(err?.message || err);
+        out(String(e?.message || e));
     }
 });
 
+// Сброс
 els.resetBtn.addEventListener("click", () => {
     els.studentId.value = 1;
     els.studentName.value = "Test Student";
     els.taskCount.value = 5;
-    els.averageGrade.value = 4.2;
+    els.averageGrade.value = "4,2";
     els.email.value = "";
-    els.output.textContent = "Пока пусто. Нажми «Сформировать отчёт».";
+    out("Пока пусто. Нажми кнопку действия.");
     setStatus("", "готово");
 });
-
-setStatus("", "готово");

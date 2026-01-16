@@ -3,71 +3,62 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>ReportApi — платформа</title>
-    <link rel="stylesheet" href="./styles.css" />
+    <title>Платформа отчётов</title>
+    <link rel="stylesheet" href="styles.css" />
 </head>
-
 <body>
-    <div class="bg"></div>
-
     <main class="wrap">
-        <header class="top">
-            <div>
-                <h1>Платформа отчётов</h1>
-                <p class="muted">Ввод данных → JSON / PDF / DOCX / отправка PDF на почту</p>
-            </div>
-            <div class="pill" id="statusPill">готово</div>
-        </header>
+        <h1>Платформа отчётов</h1>
+        <p class="sub">Ввод данных → JSON / PDF / DOCX / отправка CSV на почту</p>
 
         <section class="card">
             <h2>Данные студента</h2>
 
-            <form id="form" class="grid">
+            <div class="grid">
                 <label>
-                    <span>StudentId</span>
-                    <input id="studentId" type="number" value="1" min="1" required />
-                </label>
-
-                <label>
-                    <span>StudentName</span>
-                    <input id="studentName" type="text" value="Test Student" required />
+                    StudentId
+                    <input id="studentId" type="number" value="1" />
                 </label>
 
                 <label>
-                    <span>TaskCount</span>
-                    <input id="taskCount" type="number" value="5" min="0" required />
+                    StudentName
+                    <input id="studentName" type="text" value="Test Student" />
                 </label>
 
                 <label>
-                    <span>AverageGrade</span>
-                    <input id="averageGrade" type="number" value="4.2" step="0.1" min="0" max="5" required />
+                    TaskCount
+                    <input id="taskCount" type="number" value="5" />
                 </label>
 
-                <label class="wide">
-                    <span>Email для отправки PDF</span>
-                    <input id="email" type="email" placeholder="example@mail.com" />
+                <label>
+                    AverageGrade
+                    <input id="averageGrade" type="text" value="4,2" />
                 </label>
+            </div>
 
-                <div class="actions wide">
-                    <button class="btn primary" type="submit">Сформировать отчёт (JSON)</button>
-                    <button class="btn" type="button" id="pdfBtn">Скачать PDF</button>
-                    <button class="btn" type="button" id="docxBtn">Скачать DOCX</button>
-                    <button class="btn accent" type="button" id="sendEmailBtn">Отправить PDF на почту</button>
-                    <button class="btn ghost" type="button" id="resetBtn">Сброс</button>
-                </div>
-            </form>
+            <label class="wide">
+                Email для отправки CSV
+                <input id="email" type="email" placeholder="example@mail.com" />
+            </label>
+
+            <div class="btns">
+                <button id="jsonBtn" type="button">Сформировать отчёт (JSON)</button>
+                <button id="pdfBtn" type="button">Скачать PDF</button>
+                <button id="docxBtn" type="button">Скачать DOCX</button>
+                <button id="sendCsvBtn" type="button" class="accent">Отправить CSV на почту</button>
+                <button id="resetBtn" type="button">Сброс</button>
+            </div>
         </section>
 
         <section class="card">
             <h2>Результат</h2>
-            <pre id="output" class="code">Пока пусто. Нажми «Сформировать отчёт».</pre>
+            <pre id="output">Пока пусто. Нажми кнопку действия.</pre>
+            <div id="statusPill" class="pill">готово</div>
         </section>
 
-        <footer class="foot">
-            <span class="muted">Swagger: <a href="/swagger" target="_blank">/swagger</a></span>
-        </footer>
+        <a class="link" href="/swagger">Swagger</a>
     </main>
 
-    <script src="./app.js"></script>
+    <script src="app.js"></script>
 </body>
 </html>

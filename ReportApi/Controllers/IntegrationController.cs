@@ -2,154 +2,82 @@
 using ReportApi.Models;
 using System.Text;
 using System.Text.Json;
-using QuestPDF.Fluent;
-using QuestPDF.Infrastructure;
 
 namespace ReportApi.Controllers
 {
     [ApiController]
-    [Route("api/[controller]")]
+    [Route("api/integration")]
     public class IntegrationController : ControllerBase
     {
         private readonly IHttpClientFactory _httpClientFactory;
-        private static bool _questPdfConfigured;
 
         public IntegrationController(IHttpClientFactory httpClientFactory)
         {
             _httpClientFactory = httpClientFactory;
-
-            // ✅ Чтобы не ловить окно про лицензию QuestPDF
-            if (!_questPdfConfigured)
-            {
-                QuestPDF.Settings.License = LicenseType.Community;
-                _questPdfConfigured = true;
-            }
         }
 
-        /// <summary>
-        /// Отправить PDF-отчёт на почту через OtpravkaApi
-        /// POST: /api/integration/send-pdf?recipient=mail@example.com
-        /// Body: ReportModel
-        /// </summary>
-        [HttpPost("send-pdf")]
-        public async Task<IActionResult> SendPdfToEmail(
-            [FromQuery] string recipient,
-            [FromBody] ReportModel model)
+        // POST: /api/integration/send-csv-to-email?email=...
+        [HttpPost("send-csv-to-email")]
+        public async Task<IActionResult> SendCsvToEmail([FromQuery] string email, [FromBody] ReportModel model)
         {
-            if (string.IsNullOrWhiteSpace(recipient))
-                return BadRequest(new { error = "recipient is required" });
+            if (string.IsNullOrWhiteSpace(email))
+                return BadRequest(new { message = "email is required" });
 
-            // 1) Считаем Performance (как в ReportController)
-            var performance = model.AverageGrade switch
-            {
-                >= 4.5 => "Отлично",
-                >= 3.5 => "Хорошо",
-                _ => "Удовлетворительно"
-            };
+            // 1) Формируем CSV по данным отчёта (по сути — “мини-таблица”)
+            var csv = BuildCsv(model);
 
-            var report = new ReportResponseModel
+            // 2) Готовим запрос в OtpravkaApi (оно отправляет текст, вложений нет)
+            var req = new SendEmailRequest
             {
-                StudentId = model.StudentId,
-                StudentName = model.StudentName,
-                TaskCount = model.TaskCount,
-                AverageGrade = model.AverageGrade,
-                Performance = performance,
-                GeneratedAt = DateTime.UtcNow
-            };
-
-            // 2) Генерим PDF
-            byte[] pdfBytes;
-            try
-            {
-                pdfBytes = GeneratePdfBytes(report);
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { error = "PDF generation failed", details = ex.Message });
-            }
-
-            // 3) Готовим запрос в OtpravkaApi
-            var emailRequest = new SendEmailRequest
-            {
-                Recipient = recipient,
-                Subject = $"Отчёт по успеваемости (StudentId={report.StudentId})",
+                Recipient = email.Trim(),
+                Subject = $"CSV-отчёт по успеваемости (StudentId: {model.StudentId})",
                 Body =
-                    $"Отправляем отчёт по успеваемости.\n\n" +
-                    $"StudentId: {report.StudentId}\n" +
-                    $"StudentName: {report.StudentName}\n" +
-                    $"TaskCount: {report.TaskCount}\n" +
-                    $"AverageGrade: {report.AverageGrade}\n" +
-                    $"Performance: {report.Performance}\n" +
-                    $"Дата формирования (UTC): {report.GeneratedAt:dd.MM.yyyy HH:mm}\n",
-                AttachmentBase64 = Convert.ToBase64String(pdfBytes),
-                AttachmentFileName = $"report_{report.StudentId}.pdf",
-                AttachmentContentType = "application/pdf"
+                    "Автоматический отчёт сформирован.\n\n" +
+                    "CSV (скопируй и сохрани как report.csv):\n\n" +
+                    csv
             };
 
+            // 3) Отправляем в OtpravkaApi
             var client = _httpClientFactory.CreateClient("OtpravkaApi");
 
-            var json = JsonSerializer.Serialize(emailRequest, new JsonSerializerOptions
-            {
-                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-                WriteIndented = false
-            });
+            // если BaseUrl не задан — будет ошибка, поэтому проверим
+            if (client.BaseAddress == null)
+                return StatusCode(500, new { message = "OtpravkaApi:BaseUrl is not configured in appsettings.json" });
 
+            var json = JsonSerializer.Serialize(req);
             var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-          
-            var resp = await client.PostAsync("/api/EmailReport/send", content);
-            var respBody = await resp.Content.ReadAsStringAsync();
+            var resp = await client.PostAsync("api/EmailReport/send", content);
+            var body = await resp.Content.ReadAsStringAsync();
 
             if (!resp.IsSuccessStatusCode)
-            {
-                return StatusCode((int)resp.StatusCode, new
-                {
-                    error = "OtpravkaApi failed",
-                    status = (int)resp.StatusCode,
-                    details = respBody
-                });
-            }
+                return StatusCode((int)resp.StatusCode, new { message = "OtpravkaApi error", details = body });
 
-            // успех
-            return Ok(new
-            {
-                message = "Email sent",
-                recipient,
-                file = emailRequest.AttachmentFileName,
-                otpravkaApiResponse = respBody
-            });
+            return Ok(new { message = "Отправлено", email, note = "OtpravkaApi не поддерживает вложения, поэтому CSV отправлен текстом." });
         }
 
-        private static byte[] GeneratePdfBytes(ReportResponseModel report)
+        private static string BuildCsv(ReportModel m)
         {
-            using var stream = new MemoryStream();
+            // CSV с разделителем ; (удобно для RU Excel)
+            // AverageGrade заменим точку/запятую
+            var avg = m.AverageGrade.ToString().Replace(",", "."); // чтобы не ломалось
 
-            Document.Create(container =>
+            var sb = new StringBuilder();
+            sb.AppendLine("StudentId;StudentName;TaskCount;AverageGrade");
+            sb.AppendLine($"{m.StudentId};{Escape(m.StudentName)};{m.TaskCount};{avg}");
+            return sb.ToString();
+        }
+
+        private static string Escape(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return "";
+            // если есть ; или кавычки — экранируем
+            if (s.Contains(';') || s.Contains('"') || s.Contains('\n'))
             {
-                container.Page(page =>
-                {
-                    page.Margin(30);
-
-                    page.Content().Column(col =>
-                    {
-                        col.Spacing(10);
-
-                        col.Item().Text("Отчёт по успеваемости")
-                            .FontSize(20)
-                            .SemiBold();
-
-                        col.Item().Text($"StudentId: {report.StudentId}");
-                        col.Item().Text($"StudentName: {report.StudentName}");
-                        col.Item().Text($"TaskCount: {report.TaskCount}");
-                        col.Item().Text($"AverageGrade: {report.AverageGrade}");
-                        col.Item().Text($"Performance: {report.Performance}");
-                        col.Item().Text($"Дата формирования (UTC): {report.GeneratedAt:dd.MM.yyyy HH:mm}");
-                    });
-                });
-            })
-            .GeneratePdf(stream);
-
-            return stream.ToArray();
+                s = s.Replace("\"", "\"\"");
+                return $"\"{s}\"";
+            }
+            return s;
         }
     }
 }

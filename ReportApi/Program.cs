@@ -1,37 +1,26 @@
-using QuestPDF.Infrastructure;
-
 var builder = WebApplication.CreateBuilder(args);
-
-// ✅ Лицензия QuestPDF (иначе PDF падает с ошибкой "configure your license")
-QuestPDF.Settings.License = LicenseType.Community;
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// ✅ HttpClient для OtpravkaApi (берем URL из appsettings.json)
-builder.Services.AddHttpClient("OtpravkaApi", client =>
-{
-    var baseUrl = builder.Configuration["OtpravkaApi:BaseUrl"];
-    if (string.IsNullOrWhiteSpace(baseUrl))
-        throw new InvalidOperationException("Не задан OtpravkaApi:BaseUrl в appsettings.json");
-
-    client.BaseAddress = new Uri(baseUrl);
-});
-
-// ✅ CORS (чтобы фронт мог дергать API)
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll", p =>
         p.AllowAnyOrigin()
          .AllowAnyHeader()
-         .AllowAnyMethod()
-    );
+         .AllowAnyMethod());
 });
 
 var app = builder.Build();
 
-// ✅ Swagger
+app.UseCors("AllowAll");
+
+// 1) Статика и главная страница из wwwroot (index.html)
+app.UseDefaultFiles();   // ищет index.html
+app.UseStaticFiles();    // разрешает отдавать файлы из wwwroot
+
+// 2) Swagger
 app.UseSwagger();
 app.UseSwaggerUI(c =>
 {
@@ -39,18 +28,13 @@ app.UseSwaggerUI(c =>
     c.RoutePrefix = "swagger";
 });
 
-app.UseHttpsRedirection();
-
-app.UseCors("AllowAll");
-
-app.UseAuthorization();
-
-// ✅ Раздача платформы из wwwroot
-app.UseDefaultFiles(); // откроет wwwroot/index.html по "/"
-app.UseStaticFiles();
+// 3) Если нет index.html — делаем редирект на swagger
+app.MapGet("/", (IWebHostEnvironment env) =>
+{
+    // если фронт есть, UseDefaultFiles откроет его сам
+    // если фронта нет — отправим в swagger
+    return Results.Redirect("/swagger");
+});
 
 app.MapControllers();
-
-// ✅ Если зайти на /swagger — открывается swagger
-// (если хочешь редирект на swagger, а не на платформу, скажи — поменяю)
 app.Run();

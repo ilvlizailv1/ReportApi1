@@ -1,13 +1,5 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using ReportApi.Models;
-using System.IO;
-
-// Алиасы, чтобы НЕ было конфликта Document
-using PdfDoc = QuestPDF.Fluent.Document;
-using WordprocessingDocument = DocumentFormat.OpenXml.Packaging.WordprocessingDocument;
-using DocumentFormat.OpenXml;
-using W = DocumentFormat.OpenXml.Wordprocessing;
-using QuestPDF.Fluent;
 
 namespace ReportApi.Controllers
 {
@@ -39,16 +31,11 @@ namespace ReportApi.Controllers
             return Ok(sample);
         }
 
-        // POST api/report
+
         [HttpPost]
         public IActionResult Generate([FromBody] ReportModel model)
         {
-            string performance = model.AverageGrade switch
-            {
-                >= 4.5 => "Отлично",
-                >= 3.5 => "Хорошо",
-                _ => "Удовлетворительно"
-            };
+            string performance = GetPerformance(model.AverageGrade);
 
             var result = new ReportResponseModel
             {
@@ -63,95 +50,68 @@ namespace ReportApi.Controllers
             return Ok(result);
         }
 
-        // GET api/report/export
-        [HttpGet("export")]
-        public IActionResult Export()
+ 
+        [HttpGet("group/sample")]
+        public IActionResult GetGroupSample()
         {
-            return Ok("Используйте POST /api/report/export/pdf или POST /api/report/export/docx для экспорта отчёта.");
-        }
-
-        // POST api/report/export/pdf
-        [HttpPost("export/pdf")]
-        public IActionResult ExportPdf([FromBody] ReportModel model)
-        {
-            var report = BuildReport(model);
-
-            using var stream = new MemoryStream();
-
-            
-            PdfDoc.Create(container =>
+            var sample = new GroupReportRequest
             {
-                container.Page(page =>
+                GroupName = "ВПК7-01",
+                Students = new List<StudentInputModel>
                 {
-                    page.Margin(30);
-                    page.Header().Text("Отчёт по успеваемости").FontSize(18).SemiBold();
+                    new StudentInputModel { StudentId = 1, StudentName = "Иванов Иван", TaskCount = 5, AverageGrade = 4.6 },
+                    new StudentInputModel { StudentId = 2, StudentName = "Петров Петр", TaskCount = 4, AverageGrade = 3.9 },
+                    new StudentInputModel { StudentId = 3, StudentName = "Сидорова Анна", TaskCount = 6, AverageGrade = 4.2 }
+                }
+            };
 
-                    page.Content().Column(col =>
-                    {
-                        col.Spacing(8);
-
-                        col.Item().Text($"StudentId: {report.StudentId}");
-                        col.Item().Text($"StudentName: {report.StudentName}");
-                        col.Item().Text($"TaskCount: {report.TaskCount}");
-                        col.Item().Text($"AverageGrade: {report.AverageGrade}");
-                        col.Item().Text($"Performance: {report.Performance}");
-                        col.Item().Text($"Дата формирования (UTC): {report.GeneratedAt:dd.MM.yyyy HH:mm}");
-                    });
-                });
-            }).GeneratePdf(stream);
-
-            stream.Position = 0;
-            return File(stream.ToArray(), "application/pdf", $"report_{report.StudentId}.pdf");
+            return Ok(sample);
         }
 
-        // POST api/report/export/docx
-        [HttpPost("export/docx")]
-        public IActionResult ExportDocx([FromBody] ReportModel model)
+        [HttpPost("group")]
+        public IActionResult GenerateGroup([FromBody] GroupReportRequest request)
         {
-            var report = BuildReport(model);
+            if (request == null)
+                return BadRequest(new { message = "Request is null" });
 
-            using var ms = new MemoryStream();
+            if (string.IsNullOrWhiteSpace(request.GroupName))
+                return BadRequest(new { message = "GroupName is required" });
 
-            using (var wordDoc = WordprocessingDocument.Create(ms, DocumentFormat.OpenXml.WordprocessingDocumentType.Document, true))
+            if (request.Students == null || request.Students.Count == 0)
+                return BadRequest(new { message = "Students list is required" });
+
+            // Детализация по каждому студенту
+            var students = request.Students.Select(s => new StudentReportItemResponse
             {
-                var mainPart = wordDoc.AddMainDocumentPart();
-                mainPart.Document = new W.Document();
-                var body = mainPart.Document.AppendChild(new W.Body());
+                StudentId = s.StudentId,
+                StudentName = s.StudentName,
+                TaskCount = s.TaskCount,
+                AverageGrade = s.AverageGrade,
+                Performance = GetPerformance(s.AverageGrade)
+            }).ToList();
 
-                body.AppendChild(new W.Paragraph(new W.Run(new W.Text("Отчёт по успеваемости"))));
-                body.AppendChild(new W.Paragraph(new W.Run(new W.Text($"StudentId: {report.StudentId}"))));
-                body.AppendChild(new W.Paragraph(new W.Run(new W.Text($"StudentName: {report.StudentName}"))));
-                body.AppendChild(new W.Paragraph(new W.Run(new W.Text($"TaskCount: {report.TaskCount}"))));
-                body.AppendChild(new W.Paragraph(new W.Run(new W.Text($"AverageGrade: {report.AverageGrade}"))));
-                body.AppendChild(new W.Paragraph(new W.Run(new W.Text($"Performance: {report.Performance}"))));
-                body.AppendChild(new W.Paragraph(new W.Run(new W.Text($"Дата формирования (UTC): {report.GeneratedAt:dd.MM.yyyy HH:mm}"))));
+            // Сводка по группе
+            var response = new GroupReportResponseModel
+            {
+                GroupName = request.GroupName,
+                StudentCount = students.Count,
+                GroupAverageGrade = Math.Round(students.Average(x => x.AverageGrade), 2),
+                TotalTaskCount = students.Sum(x => x.TaskCount),
+                Students = students,
+                GeneratedAt = DateTime.UtcNow
+            };
 
-                mainPart.Document.Save();
-            }
-
-            var bytes = ms.ToArray();
-            return File(bytes,
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                $"report_{report.StudentId}.docx");
+            return Ok(response);
         }
 
-        private ReportResponseModel BuildReport(ReportModel model)
+ 
+        private static string GetPerformance(double avg)
         {
-            string performance = model.AverageGrade switch
+            return avg switch
             {
                 >= 4.5 => "Отлично",
                 >= 3.5 => "Хорошо",
                 _ => "Удовлетворительно"
-            };
-
-            return new ReportResponseModel
-            {
-                StudentId = model.StudentId,
-                StudentName = model.StudentName,
-                TaskCount = model.TaskCount,
-                AverageGrade = model.AverageGrade,
-                Performance = performance,
-                GeneratedAt = DateTime.UtcNow
             };
         }
     }

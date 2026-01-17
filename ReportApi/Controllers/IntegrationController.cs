@@ -16,31 +16,65 @@ namespace ReportApi.Controllers
             _httpClientFactory = httpClientFactory;
         }
 
-        // POST: /api/integration/send-csv-to-email?email=...
+    
         [HttpPost("send-csv-to-email")]
         public async Task<IActionResult> SendCsvToEmail([FromQuery] string email, [FromBody] ReportModel model)
         {
             if (string.IsNullOrWhiteSpace(email))
                 return BadRequest(new { message = "email is required" });
 
-            // 1) Формируем CSV по данным отчёта (по сути — “мини-таблица”)
-            var csv = BuildCsv(model);
+            var performance = GetPerformance(model.AverageGrade);
 
-            // 2) Готовим запрос в OtpravkaApi (оно отправляет текст, вложений нет)
+            var csv = new StringBuilder();
+            csv.AppendLine("StudentId;StudentName;TaskCount;AverageGrade;Performance");
+            csv.AppendLine($"{model.StudentId};{Escape(model.StudentName)};{model.TaskCount};{model.AverageGrade};{performance}");
+
             var req = new SendEmailRequest
             {
                 Recipient = email.Trim(),
-                Subject = $"CSV-отчёт по успеваемости (StudentId: {model.StudentId})",
-                Body =
-                    "Автоматический отчёт сформирован.\n\n" +
-                    "CSV (скопируй и сохрани как report.csv):\n\n" +
-                    csv
+                Subject = $"Индивидуальный CSV-отчёт (StudentId: {model.StudentId})",
+                Body = "Отчёт сформирован.\n\nCSV (скопируй и сохрани как report.csv):\n\n" + csv.ToString()
             };
 
-            // 3) Отправляем в OtpravkaApi
+            return await SendViaOtpravka(req);
+        }
+
+        // Новое
+        [HttpPost("send-group-csv-to-email")]
+        public async Task<IActionResult> SendGroupCsvToEmail([FromQuery] string email, [FromBody] GroupReportRequest request)
+        {
+            if (string.IsNullOrWhiteSpace(email))
+                return BadRequest(new { message = "email is required" });
+
+            if (request == null || string.IsNullOrWhiteSpace(request.GroupName))
+                return BadRequest(new { message = "GroupName is required" });
+
+            if (request.Students == null || request.Students.Count == 0)
+                return BadRequest(new { message = "Students list is required" });
+
+            var sb = new StringBuilder();
+            sb.AppendLine("GroupName;StudentId;StudentName;TaskCount;AverageGrade;Performance");
+
+            foreach (var s in request.Students)
+            {
+                var perf = GetPerformance(s.AverageGrade);
+                sb.AppendLine($"{Escape(request.GroupName)};{s.StudentId};{Escape(s.StudentName)};{s.TaskCount};{s.AverageGrade};{perf}");
+            }
+
+            var req = new SendEmailRequest
+            {
+                Recipient = email.Trim(),
+                Subject = $"Групповой CSV-отчёт ({request.GroupName})",
+                Body = "Групповой отчёт сформирован.\n\nCSV (скопируй и сохрани как report.csv):\n\n" + sb.ToString()
+            };
+
+            return await SendViaOtpravka(req);
+        }
+
+        private async Task<IActionResult> SendViaOtpravka(SendEmailRequest req)
+        {
             var client = _httpClientFactory.CreateClient("OtpravkaApi");
 
-            // если BaseUrl не задан — будет ошибка, поэтому проверим
             if (client.BaseAddress == null)
                 return StatusCode(500, new { message = "OtpravkaApi:BaseUrl is not configured in appsettings.json" });
 
@@ -53,25 +87,22 @@ namespace ReportApi.Controllers
             if (!resp.IsSuccessStatusCode)
                 return StatusCode((int)resp.StatusCode, new { message = "OtpravkaApi error", details = body });
 
-            return Ok(new { message = "Отправлено", email, note = "OtpravkaApi не поддерживает вложения, поэтому CSV отправлен текстом." });
+            return Ok(new { message = "Отправлено", recipient = req.Recipient });
         }
 
-        private static string BuildCsv(ReportModel m)
+        private static string GetPerformance(double avg)
         {
-            // CSV с разделителем ; (удобно для RU Excel)
-            // AverageGrade заменим точку/запятую
-            var avg = m.AverageGrade.ToString().Replace(",", "."); // чтобы не ломалось
-
-            var sb = new StringBuilder();
-            sb.AppendLine("StudentId;StudentName;TaskCount;AverageGrade");
-            sb.AppendLine($"{m.StudentId};{Escape(m.StudentName)};{m.TaskCount};{avg}");
-            return sb.ToString();
+            return avg switch
+            {
+                >= 4.5 => "Отлично",
+                >= 3.5 => "Хорошо",
+                _ => "Удовлетворительно"
+            };
         }
 
         private static string Escape(string s)
         {
             if (string.IsNullOrEmpty(s)) return "";
-            // если есть ; или кавычки — экранируем
             if (s.Contains(';') || s.Contains('"') || s.Contains('\n'))
             {
                 s = s.Replace("\"", "\"\"");
